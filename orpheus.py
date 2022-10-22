@@ -161,7 +161,7 @@ def main():
                 print(f'Download must be done as orpheus.py [download] [module] [{media_types}] [media ID 1] [media ID 2] ...')
                 exit() # TODO: replace with InvalidInput
         else:  # if no specific modes are detected, parse as urls, but first try loading as a list of URLs
-            arguments = tuple(open(args.arguments[0], 'r')) if len(args.arguments) == 1 and os.path.exists(args.arguments[0]) else args.arguments
+            arguments = tuple(open(args.arguments[0], 'r').read().splitlines()) if len(args.arguments) == 1 and os.path.exists(args.arguments[0]) else args.arguments
             media_to_download = {}
             for link in arguments:
                 if link.startswith('http'):
