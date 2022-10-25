@@ -1,4 +1,5 @@
 import logging, os, ffmpeg, sys
+import mutagen
 import shutil
 from dataclasses import asdict
 from time import strftime, gmtime
@@ -353,6 +354,50 @@ class Downloader:
         check_codec = conversions[track_info.codec] if track_info.codec in conversions else track_info.codec
         check_location = f'{track_location_name}.{codec_data[check_codec].container.name}'
 
+        # Get lyrics
+        embedded_lyrics = ''
+        if self.global_settings['lyrics']['embed_lyrics'] or (self.global_settings['lyrics']['save_synced_lyrics'] and not os.path.isfile(lrc_location)):
+            lyrics_info = LyricsInfo()
+            if self.third_party_modules[ModuleModes.lyrics] and self.third_party_modules[ModuleModes.lyrics] != self.service_name:
+                lyrics_module_name = self.third_party_modules[ModuleModes.lyrics]
+                self.print('Retrieving lyrics with ' + lyrics_module_name)
+                lyrics_module = self.loaded_modules[lyrics_module_name]
+
+                if lyrics_module_name != self.service_name:
+                    results: list[SearchResult] = self.search_by_tags(lyrics_module_name, track_info)
+                    lyrics_track_id = results[0].result_id if len(results) else None
+                    extra_kwargs = results[0].extra_kwargs if len(results) else None
+                else:
+                    lyrics_track_id = track_id
+                    extra_kwargs = {}
+                
+                if lyrics_track_id:
+                    lyrics_info: LyricsInfo = lyrics_module.get_track_lyrics(lyrics_track_id, **extra_kwargs)
+                    # if lyrics_info.embedded or lyrics_info.synced:
+                    #     self.print('Lyrics retrieved')
+                    # else:
+                    #     self.print('Lyrics module could not find any lyrics.')
+                else:
+                    self.print('Lyrics module could not find any lyrics.')
+            elif ModuleModes.lyrics in self.module_settings[self.service_name].module_supported_modes:
+                lyrics_info: LyricsInfo = self.service.get_track_lyrics(track_id, **track_info.lyrics_extra_kwargs)
+                # if lyrics_info.embedded or lyrics_info.synced:
+                #     self.print('Lyrics retrieved')
+                # else:
+                #     self.print('No lyrics available')
+
+            if lyrics_info.embedded and self.global_settings['lyrics']['embed_lyrics']:
+                embedded_lyrics = lyrics_info.embedded
+            # embed the synced lyrics (f.e. Roon) if they are available
+            if lyrics_info.synced and self.global_settings['lyrics']['embed_lyrics'] and \
+                    self.global_settings['lyrics']['embed_synced_lyrics']:
+                embedded_lyrics = lyrics_info.synced
+            if lyrics_info.synced and self.global_settings['lyrics']['save_synced_lyrics']:
+                lrc_location = f'{track_location_name}.lrc'
+                if not os.path.isfile(lrc_location):
+                    with open(lrc_location, 'w', encoding='utf-8') as f:
+                        f.write(lyrics_info.synced)
+
         if os.path.isfile(check_location) and not self.global_settings['advanced']['ignore_existing_files']:
             self.print('Track file already exists')
 
@@ -445,50 +490,6 @@ class Downloader:
         if track_info.animated_cover_url and self.global_settings['covers']['save_animated_cover']:
             self.print('Downloading animated cover')
             download_file(track_info.animated_cover_url, track_location_name + '_cover.mp4', enable_progress_bar=True)
-
-        # Get lyrics
-        embedded_lyrics = ''
-        if self.global_settings['lyrics']['embed_lyrics'] or self.global_settings['lyrics']['save_synced_lyrics']:
-            lyrics_info = LyricsInfo()
-            if self.third_party_modules[ModuleModes.lyrics] and self.third_party_modules[ModuleModes.lyrics] != self.service_name:
-                lyrics_module_name = self.third_party_modules[ModuleModes.lyrics]
-                self.print('Retrieving lyrics with ' + lyrics_module_name)
-                lyrics_module = self.loaded_modules[lyrics_module_name]
-
-                if lyrics_module_name != self.service_name:
-                    results: list[SearchResult] = self.search_by_tags(lyrics_module_name, track_info)
-                    lyrics_track_id = results[0].result_id if len(results) else None
-                    extra_kwargs = results[0].extra_kwargs if len(results) else None
-                else:
-                    lyrics_track_id = track_id
-                    extra_kwargs = {}
-                
-                if lyrics_track_id:
-                    lyrics_info: LyricsInfo = lyrics_module.get_track_lyrics(lyrics_track_id, **extra_kwargs)
-                    # if lyrics_info.embedded or lyrics_info.synced:
-                    #     self.print('Lyrics retrieved')
-                    # else:
-                    #     self.print('Lyrics module could not find any lyrics.')
-                else:
-                    self.print('Lyrics module could not find any lyrics.')
-            elif ModuleModes.lyrics in self.module_settings[self.service_name].module_supported_modes:
-                lyrics_info: LyricsInfo = self.service.get_track_lyrics(track_id, **track_info.lyrics_extra_kwargs)
-                # if lyrics_info.embedded or lyrics_info.synced:
-                #     self.print('Lyrics retrieved')
-                # else:
-                #     self.print('No lyrics available')
-
-            if lyrics_info.embedded and self.global_settings['lyrics']['embed_lyrics']:
-                embedded_lyrics = lyrics_info.embedded
-            # embed the synced lyrics (f.e. Roon) if they are available
-            if lyrics_info.synced and self.global_settings['lyrics']['embed_lyrics'] and \
-                    self.global_settings['lyrics']['embed_synced_lyrics']:
-                embedded_lyrics = lyrics_info.synced
-            if lyrics_info.synced and self.global_settings['lyrics']['save_synced_lyrics']:
-                lrc_location = f'{track_location_name}.lrc'
-                if not os.path.isfile(lrc_location):
-                    with open(lrc_location, 'w', encoding='utf-8') as f:
-                        f.write(lyrics_info.synced)
 
         # Get credits
         credits_list = []
@@ -615,6 +616,12 @@ class Downloader:
             silentremove(cover_temp_location)
         
         self.print(f'=== Track {track_id} downloaded ===', drop_level=1)
+
+        # verify download is complete, otherwise redownload
+        if abs(track_info.duration - mutagen.File(track_location).info.length) >= 1:
+            self.print("Track file incomplete. Redownloading...")
+            shutil.move(track_location, f"{track_location}.old")
+            self.download_track(track_id, album_location, main_artist, track_index, number_of_tracks, '', indent_level, m3u_playlist, extra_kwargs)
 
     def _get_artwork_settings(self, module_name = None, is_external = False):
         if not module_name:
