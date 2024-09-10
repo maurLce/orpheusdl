@@ -48,6 +48,7 @@ class Orpheus:
                 "track_filename_format": "{track_number}. {name}",
                 "single_full_path_format": "{name}",
                 "enable_zfill": True,
+                "fixed_zfill": 1,
                 "force_album_format": False
             },
             "codecs": {
@@ -96,7 +97,8 @@ class Orpheus:
                 "disable_subscription_checks": False,
                 "enable_undesirable_conversions": False,
                 "ignore_existing_files": False,
-                "ignore_different_artists": True
+                "ignore_different_artists": True,
+                "hardlink_multiple_artists": False
             }
         }
 

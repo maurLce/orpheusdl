@@ -1,4 +1,4 @@
-import pickle, requests, errno, hashlib, math, os, re, operator
+import pickle, requests, errno, hashlib, math, os, re, operator, shutil
 from tqdm import tqdm
 from PIL import Image, ImageChops
 from requests.adapters import HTTPAdapter
@@ -19,7 +19,7 @@ def create_requests_session():
     session_.mount('https://', HTTPAdapter(max_retries=retries))
     return session_
 
-sanitise_name = lambda name : re.sub(r'[:]', ' - ', re.sub(r'[\\/*?"<>|$]', '', re.sub(r'[ \t]+$', '', str(name).rstrip()))) if name else ''
+sanitise_name = lambda name : re.sub(r'[:]', '-', re.sub(r'[\\/*?"<>|]', '', re.sub(r'[ \t]+$', '', str(name).rstrip()))) if name else ''
 
 
 def fix_byte_limit(path: str, byte_limit=250):
@@ -97,12 +97,19 @@ def compare_images(image_1, image_2):
 # TODO: check if not closing the files causes issues, and see if there's a way to use the context manager with lambda expressions
 get_image_resolution = lambda image_location : Image.open(image_location).size[0]
 
-def silentremove(filename):
-    try:
-        os.remove(filename)
-    except OSError as e:
-        if e.errno != errno.ENOENT:
-            raise
+def silentremove(path, is_directory=False):
+    if is_directory:
+        try:
+            shutil.rmtree(path)
+        except OSError as e:
+            if e.errno != errno.ENOENT:
+                raise
+    else:
+        try:
+            os.remove(path)
+        except OSError as e:
+            if e.errno != errno.ENOENT:
+                raise
 
 def read_temporary_setting(settings_location, module, root_setting=None, setting=None, global_mode=False):
     temporary_settings = pickle.load(open(settings_location, 'rb'))

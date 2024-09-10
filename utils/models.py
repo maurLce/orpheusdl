@@ -287,11 +287,13 @@ class CreditsInfo:
 class AlbumInfo:
     name: str
     artist: str
+    artists: list
     tracks: list
     release_year: int
     duration: Optional[int] = None  # Duration in whole seconds
     explicit: Optional[bool] = False
     artist_id: Optional[str] = None
+    artist_ids: Optional[list] = None
     quality: Optional[str] = None
     booklet_url: Optional[str] = None
     cover_url: Optional[str] = None
@@ -340,7 +342,7 @@ class TrackInfo:
     release_year: int
     duration: Optional[int] = None  # Duration in whole seconds
     explicit: Optional[bool] = None
-    artist_id: Optional[str] = None
+    artist_ids: Optional[list] = None
     animated_cover_url: Optional[str] = None
     description: Optional[str] = None
     bit_depth: Optional[int] = 16

@@ -161,17 +161,19 @@ class Downloader:
     @staticmethod
     def _get_artist_initials_from_name(album_info: AlbumInfo) -> str:
         # Remove "the" from the inital string
-        initial = album_info.artist.lower()
-        if album_info.artist.lower().startswith('the'):
-            initial = initial.replace('the ', '')[0].upper()
+        initials = []
+        for artist in album_info.artists:
+            initial = artist.lower()
+            if artist.lower().startswith('the'):
+                initial = initial.replace('the ', '')[0].upper()
 
-        # Unicode fix
-        initial = unicodedata.normalize('NFKD', initial[0]).encode('ascii', 'ignore').decode('utf-8')
+            # Unicode fix
+            initial = unicodedata.normalize('NFKD', initial[0]).encode('ascii', 'ignore').decode('utf-8')
 
-        # Make the initial upper if it's alpha
-        initial = initial.upper() if initial.isalpha() else '#'
-
-        return initial
+            # Make the initial upper if it's alpha
+            initial = initial.upper() if initial.isalpha() else '#'
+            initials.append(initial)
+        return '-'.join(initials)
 
     def _create_album_location(self, path: str, album_id: str, album_info: AlbumInfo) -> str:
         # Clean up album tags and add special explicit and additional formats
@@ -189,17 +191,51 @@ class Downloader:
         return album_path
 
     def _download_album_files(self, album_path: str, album_info: AlbumInfo):
+        cover_location = f'{album_path}cover.{album_info.cover_type.name}'
+        animated_cover_location = album_path + 'cover.mp4'
+        description_location = album_path + 'description.txt'
+
         if album_info.cover_url:
             self.print('Downloading album cover')
-            download_file(album_info.cover_url, f'{album_path}cover.{album_info.cover_type.name}', artwork_settings=self._get_artwork_settings())
+            download_file(album_info.cover_url, cover_location, artwork_settings=self._get_artwork_settings())
 
         if album_info.animated_cover_url and self.global_settings['covers']['save_animated_cover']:
             self.print('Downloading animated album cover')
-            download_file(album_info.animated_cover_url, album_path + 'cover.mp4', enable_progress_bar=True)
+            download_file(album_info.animated_cover_url, animated_cover_location, enable_progress_bar=True)
 
         if album_info.description:
-            with open(album_path + 'description.txt', 'w', encoding='utf-8') as f:
+            with open(description_location, 'w', encoding='utf-8') as f:
                 f.write(album_info.description)  # Also add support for this with singles maybe?
+
+        # Hardlink the files if there are multiple artists
+        if self.global_settings['advanced']['hardlink_multiple_artists']:
+            if len(album_info.artists) > 1 and any(a in self.global_settings['formatting']['album_format'] for a in ['{artist}', '{artist_id}']):
+                album_id = self.service.session.get_track(album_info.tracks[0])["album"]["id"]
+
+                for artist, artist_id in zip(album_info.artists[1:], album_info.artist_ids[1:]):
+                    if album_info.cover_url:
+                        hardlinked_cover_location = self.get_hardlinked_file_location(album_info, artist, artist_id, album_id, cover_location)
+                        os.makedirs(os.path.dirname(hardlinked_cover_location), exist_ok=True)
+                        try:
+                            os.link(cover_location, hardlinked_cover_location)
+                        except FileExistsError:
+                            pass
+
+                    if album_info.animated_cover_url and self.global_settings['covers']['save_animated_cover']:
+                        hardlinked_animated_cover_location = self.get_hardlinked_file_location(album_info, artist, artist_id, album_id, animated_cover_location)
+                        os.makedirs(os.path.dirname(hardlinked_animated_cover_location), exist_ok=True)
+                        try:
+                            os.link(animated_cover_location, hardlinked_animated_cover_location)
+                        except FileExistsError:
+                            pass
+                    
+                    if album_info.description:
+                        hardlinked_description_location = self.get_hardlinked_file_location(album_info, artist, artist_id, album_id, description_location)
+                        os.makedirs(os.path.dirname(hardlinked_description_location), exist_ok=True)
+                        try:
+                            os.link(description_location, hardlinked_description_location)
+                        except FileExistsError:
+                            pass
 
     def download_album(self, album_id, artist_name='', path=None, indent_level=1, extra_kwargs={}):
         self.set_indent_number(indent_level)
@@ -220,15 +256,27 @@ class Downloader:
                 self.set_indent_number(2)
 
             self.print(f'=== Downloading album {album_info.name} ({album_id}) ===', drop_level=1)
-            self.print(f'Artist: {album_info.artist} ({album_info.artist_id})')
+            self.print(f'Artist(s): {", ".join(album_info.artists)} ({", ".join(map(str, album_info.artist_ids))})')
             if album_info.release_year: self.print(f'Year: {album_info.release_year}')
             if album_info.duration: self.print(f'Duration: {beauty_format_seconds(album_info.duration)}')
             self.print(f'Number of tracks: {number_of_tracks!s}')
             self.print(f'Service: {self.module_settings[self.service_name].service_name}')
 
-            if album_info.booklet_url and not os.path.exists(album_path + 'Booklet.pdf'):
+            booklet_location = album_path + 'Booklet.pdf'
+            if album_info.booklet_url and not os.path.exists(booklet_location):
                 self.print('Downloading booklet')
-                download_file(album_info.booklet_url, album_path + 'Booklet.pdf')
+                download_file(album_info.booklet_url, booklet_location)
+
+                # Hardlink the booklet if there are multiple artists
+                if self.global_settings['advanced']['hardlink_multiple_artists']:
+                    if len(album_info.artists) > 1 and any(a in self.global_settings['formatting']['album_format'] for a in ['{artist}', '{artist_id}']):
+                        for artist, artist_id in zip(album_info.artists[1:], album_info.artist_ids[1:]):
+                            hardlinked_booklet_location = self.get_hardlinked_file_location(album_info, artist, artist_id, album_id, booklet_location)
+                            os.makedirs(os.path.dirname(hardlinked_booklet_location), exist_ok=True)
+                            try:
+                                os.link(booklet_location, hardlinked_booklet_location)
+                            except FileExistsError:
+                                pass
             
             cover_temp_location = download_to_temp(album_info.all_track_cover_jpg_url) if album_info.all_track_cover_jpg_url else ''
 
@@ -244,6 +292,9 @@ class Downloader:
             self.set_indent_number(indent_level)
             self.print(f'=== Album {album_info.name} downloaded ===', drop_level=1)
             if cover_temp_location: silentremove(cover_temp_location)
+
+            num_audio_files = len([f for f in os.listdir(album_path) if f.lower().endswith(tuple(ContainerEnum.__members__.keys()))])
+            if num_audio_files == 0: silentremove(album_path, is_directory=True) # we could also take it a step further and delete the artist folder if it's empty
         elif number_of_tracks == 1:
             self.download_track(album_info.tracks[0], album_location=path, number_of_tracks=1, main_artist=artist_name, indent_level=indent_level, extra_kwargs=album_info.track_extra_kwargs)
 
@@ -302,7 +353,7 @@ class Downloader:
                 track_info.tags.track_number = track_index
             if number_of_tracks:
                 track_info.tags.total_tracks = number_of_tracks
-        zfill_number = len(str(track_info.tags.total_tracks)) if self.download_mode is not DownloadTypeEnum.track else 1
+        zfill_number = self.global_settings['formatting']['fixed_zfill']
         zfill_lambda = lambda input : sanitise_name(str(input)).zfill(zfill_number) if input is not None else None
 
         # Separate copy of tags for formatting purposes
@@ -310,13 +361,14 @@ class Downloader:
         track_tags = {k: (zfill_lambda(v) if zfill_enabled and k in zfill_list else sanitise_name(v)) for k, v in {**asdict(track_info.tags), **asdict(track_info)}.items()}
         track_tags['explicit'] = ' [E]' if track_info.explicit else ''
         track_tags['artist'] = sanitise_name(track_info.artists[0])  # if len(track_info.artists) == 1 else 'Various Artists'
+        track_tags['id'] = str(track_id)
         codec = track_info.codec
 
         self.set_indent_number(indent_level)
         self.print(f'=== Downloading track {track_info.name} ({track_id}) ===', drop_level=1)
 
         if self.download_mode is not DownloadTypeEnum.album and track_info.album: self.print(f'Album: {track_info.album} ({track_info.album_id})')
-        if self.download_mode is not DownloadTypeEnum.artist: self.print(f'Artists: {", ".join(track_info.artists)} ({track_info.artist_id})')
+        if self.download_mode is not DownloadTypeEnum.artist: self.print(f'Artist(s): {", ".join(track_info.artists)} ({", ".join(map(str, track_info.artist_ids))})')
         if track_info.release_year: self.print(f'Release year: {track_info.release_year!s}')
         if track_info.duration: self.print(f'Duration: {beauty_format_seconds(track_info.duration)}')
         if self.download_mode is DownloadTypeEnum.track: self.print(f'Service: {self.module_settings[self.service_name].service_name}')
@@ -335,11 +387,11 @@ class Downloader:
 
         album_location = album_location.replace('\\', '/')
 
+        album_info: AlbumInfo = self.service.get_album_info(track_info.album_id)
+
         # Ignores "single_full_path_format" and just downloads every track as an album
         if self.global_settings['formatting']['force_album_format'] and self.download_mode in {
             DownloadTypeEnum.track, DownloadTypeEnum.playlist}:
-            # Fetch every needed album_info tag and create an album_location
-            album_info: AlbumInfo = self.service.get_album_info(track_info.album_id)
             # Save the playlist path to save all the albums in the playlist path
             path = self.path if album_location == '' else album_location
             album_location = self._create_album_location(path, track_info.album_id, album_info)
@@ -508,6 +560,17 @@ class Downloader:
                     with open(lrc_location, 'w', encoding='utf-8') as f:
                         f.write(lyrics_info.synced)
 
+            # Hardlink the lyrics if there are multiple artists
+            if self.global_settings['advanced']['hardlink_multiple_artists']:
+                if len(album_info.artists) > 1 and any(a in self.global_settings['formatting']['album_format'] for a in ['{artist}', '{artist_id}']):
+                    for artist, artist_id in zip(album_info.artists[1:], album_info.artist_ids[1:]):
+                        hardlinked_lyrics_location = self.get_hardlinked_file_location(album_info, artist, artist_id, track_info.album_id, lrc_location)
+                        os.makedirs(os.path.dirname(hardlinked_lyrics_location), exist_ok=True)
+                        try:
+                            os.link(lrc_location, hardlinked_lyrics_location)
+                        except FileExistsError:
+                            pass
+
         # Get credits
         credits_list = []
         if self.third_party_modules[ModuleModes.credits] and self.third_party_modules[ModuleModes.credits] != self.service_name:
@@ -620,17 +683,33 @@ class Downloader:
             self._add_track_m3u_playlist(m3u_playlist, track_info, track_location)
 
         # Finally tag file
+
+        # Get hardlinked locations if there are multiple artists (for track files and failed tagging txt files)
+        hardlinked_track_locations = []
+        for artist, artist_id in zip(album_info.artists[1:], album_info.artist_ids[1:]):
+            hardlinked_track_locations.append(self.get_hardlinked_file_location(album_info, artist, artist_id, track_info.album_id, track_location))
+
         self.print('Tagging file')
         try:
-            tag_file(track_location, cover_temp_location if self.global_settings['covers']['embed_cover'] else None,
+            tag_file(track_location, hardlinked_track_locations, cover_temp_location if self.global_settings['covers']['embed_cover'] else None,
                      track_info, credits_list, embedded_lyrics, container)
             if old_track_location:
-                tag_file(old_track_location, cover_temp_location if self.global_settings['covers']['embed_cover'] else None,
+                tag_file(old_track_location, hardlinked_track_locations, cover_temp_location if self.global_settings['covers']['embed_cover'] else None,
                          track_info, credits_list, embedded_lyrics, old_container)
         except TagSavingFailure:
             self.print('Tagging failed, tags saved to text file')
         if delete_cover:
             silentremove(cover_temp_location)
+
+        # Hardlink the track if there are multiple artists
+        if self.global_settings['advanced']['hardlink_multiple_artists']:
+            if len(album_info.artists) > 1 and any(a in self.global_settings['formatting']['album_format'] for a in ['{artist}', '{artist_id}']):
+                for hardlinked_track_location in hardlinked_track_locations:
+                    os.makedirs(os.path.dirname(hardlinked_track_location), exist_ok=True)
+                    try:
+                        os.link(track_location, hardlinked_track_location)
+                    except FileExistsError:
+                        pass
         
         self.print(f'=== Track {track_id} downloaded ===', drop_level=1)
 
@@ -643,3 +722,13 @@ class Downloader:
             'compression': self.global_settings['covers']['external_compression'] if is_external else self.global_settings['covers']['main_compression'],
             'format': self.global_settings['covers']['external_format'] if is_external else 'jpg'
         }
+
+    def get_hardlinked_file_location(self, album_info, artist, artist_id, album_id, file_location):
+        hardlinked_album_info = album_info
+        hardlinked_album_info.artist = artist
+        hardlinked_album_info.artist_id = artist_id
+        hardlinked_album_location = self._create_album_location(self.path, album_id, hardlinked_album_info)
+        hardlinked_album_location = hardlinked_album_location.replace('\\', '/')
+        current_filename = file_location.split('/')[-1]
+        hardlinked_file_location = hardlinked_album_location + current_filename
+        return hardlinked_file_location

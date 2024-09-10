@@ -1,5 +1,6 @@
 import base64
 import logging
+import time
 from dataclasses import asdict
 
 from PIL import Image
@@ -20,7 +21,7 @@ from utils.models import ContainerEnum, TrackInfo
 MP4Tags._padding = 0
 
 
-def tag_file(file_path: str, image_path: str, track_info: TrackInfo, credits_list: list, embedded_lyrics: str, container: ContainerEnum):
+def tag_file(file_path: str, hardlinked_paths: list, image_path: str, track_info: TrackInfo, credits_list: list, embedded_lyrics: str, container: ContainerEnum):
     if container == ContainerEnum.flac:
         tagger = FLAC(file_path)
     elif container == ContainerEnum.opus:
@@ -40,6 +41,9 @@ def tag_file(file_path: str, image_path: str, track_info: TrackInfo, credits_lis
         tagger.tags.RegisterTXXXKey('minor_version', 'minor_version')
         tagger.tags.RegisterTXXXKey('Rating', 'Rating')
         tagger.tags.RegisterTXXXKey('upc', 'BARCODE')
+        
+        tagger.tags.RegisterTXXXKey('source', 'SOURCE')
+        tagger.tags.RegisterTXXXKey('timestamp', 'TIMESTAMP')
 
         tagger.tags.pop('encoded', None)
     elif container == ContainerEnum.m4a:
@@ -51,6 +55,9 @@ def tag_file(file_path: str, image_path: str, track_info: TrackInfo, credits_lis
         tagger.RegisterTextKey('explicit', 'rtng') if track_info.explicit is not None else None
         tagger.RegisterTextKey('covr', 'covr')
         tagger.RegisterTextKey('lyrics', '\xa9lyr') if embedded_lyrics else None
+
+        tagger.RegisterTextKey('source', '----:com.apple.itunes:SOURCE')
+        tagger.RegisterTextKey('timestamp', '----:com.apple.itunes:TIMESTAMP')
     else:
         raise Exception('Unknown container for tagging')
 
@@ -230,6 +237,13 @@ def tag_file(file_path: str, image_path: str, track_info: TrackInfo, credits_lis
             print(f'\tCover file size is too large, only {(picture._MAX_SIZE / 1024 ** 2):.2f}MB are allowed. Track '
                   f'will not have cover saved.')
 
+        if container == ContainerEnum.m4a:
+            tagger['source'] = 'TIDAL'.encode()
+            tagger['timestamp'] = str(int(time.time())).encode()
+        else: # unsure if containers other than m4a also require special handling
+            tagger['source'] = 'TIDAL'
+            tagger['timestamp'] = str(int(time.time()))
+
     try:
         tagger.save(file_path, v1=2, v2_version=3, v23_sep=None) if container == ContainerEnum.mp3 else tagger.save()
     except:
@@ -238,4 +252,7 @@ def tag_file(file_path: str, image_path: str, track_info: TrackInfo, credits_lis
         tag_text += '\n\ncredits:\n    ' + '\n    '.join(f'{credit.type}: {", ".join(credit.names)}' for credit in credits_list if credit.names) if credits_list else ''
         tag_text += '\n\nlyrics:\n    ' + '\n    '.join(embedded_lyrics.split('\n')) if embedded_lyrics else ''
         open(file_path.rsplit('.', 1)[0] + '_tags.txt', 'w', encoding='utf-8').write(tag_text)
+        if hardlinked_paths:
+            for hardlinked_path in hardlinked_paths:
+                open(hardlinked_path.rsplit('.', 1)[0] + '_tags.txt', 'w', encoding='utf-8').write(tag_text)
         raise TagSavingFailure

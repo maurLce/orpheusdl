@@ -126,9 +126,9 @@ def main():
                             additional_details += ' '.join([f'[{i}]' for i in item.additional]) if item.additional else ''
                             if query_type is not DownloadTypeEnum.artist:
                                 artists = ', '.join(item.artists) if item.artists is list else item.artists
-                                print(f'{str(index)}. {item.name} - {", ".join(artists)} {additional_details}')
+                                print(f'{str(index)}. {item.name} - {", ".join(artists)} {additional_details} [{item.result_id}]')
                             else:
-                                print(f'{str(index)}. {item.name} {additional_details}')
+                                print(f'{str(index)}. {item.name} {additional_details} [{item.result_id}]')
                         
                         selection_input = input('Selection: ')
                         if selection_input.lower() in ['e', 'q', 'x', 'exit', 'quit']: exit()

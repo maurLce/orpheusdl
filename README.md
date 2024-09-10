@@ -22,6 +22,7 @@ A modular music archival program
 - [Configuration](#configuration)
     - [Global/Formatting](#globalformatting)
         - [Format variables](#format-variables)
+- [Fork Differences](#fork-differences)
 - [Contact](#contact)
 - [Acknowledgements](#acknowledgements)
 
@@ -225,6 +226,29 @@ selected module
 | embed_lyrics        | Embeds the (unsynced) lyrics inside every track                                                                                                                     |
 | embed_synced_lyrics | Embeds the synced lyrics inside every track (needs `embed_lyrics` to be enabled) (required for [Roon](https://community.roonlabs.com/t/1-7-lyrics-tag-guide/85182)) |
 | save_synced_lyrics  | Saves the synced lyrics inside a  `.lrc` file in the same directory as the track with the same `track_format` variables                                             |
+
+<!-- FORK DIFFERENCES -->
+## Fork Differences
+
+This is a forked project that has been modified from the original. Below are the changes made:
+
+- Sanitized names now replace colons with hyphens.
+- Sanitized names now allow the *$* character.
+- The *silentremove* function has been updated to allow for the removal of directories in addition to files.
+- The *AlbumInfo* class has added the fields *artists* and *artist_ids*.
+- The *TrackInfo* class has replaced the field *artist_id* with *artist_ids*.
+- The tagging process now includes *source* (set to *TIDAL*) and *timestamp* (set to the current epoch time) tags.
+- The *_get_artist_initials_from_name* function now returns initials for all album artists, separated by a hyphen.
+- The *_download_album_files* function supports the new *hardlink_multiple_artists* config option, and if enabled will hardlink the cover, animated cover, and description files to all album artists. If *hardlink_multiple_artists* is disabled, the original functionality will remain and only the first album artist will have these files.
+- The *download_album* function supports the new *hardlink_multiple_artists* config option, and if enabled will hardlink the booklet file to all album artists. If *hardlink_multiple_artists* is disabled, the original functionality will remain and only the first album artist will have this file.
+- The *download_track* and *tag_file* functions support the new *hardlink_multiple_artists* config option, and if enabled will hardlink the track file and failed tagging txt file (if applicable) to all album artists. If *hardlink_multiple_artists* is disabled, the original functionality will remain and only the first album artist will have these files.
+- The print statement that comes after the "=== Downloading album ... ===" text has been updated to show all album artists rather than just the first one.
+- The print statement that comes after the text "=== Downloading track ... ===" text has been updated to show all artists rather than just the first one.
+- In the *download_album* function, if the album folder has no audio files after the download is complete (due to errors, skipped tracks, etc), the album folder will be deleted.
+- The new *fixed_zfill* option allows the user to set the "zfill" number rather than it being set to the length of the total tracks metadata field.
+- The *download_track* function now exposes the track ID in *track_tags* so the user can use it in the *track_filename_format* config option.
+- In the *download_track* function, declaration of *album_info* has been moved outside of the if statement so that we can access it when creating hardlinks.
+- Search results now append item IDs to each result.
 
 <!-- Contact -->
 ## Contact
